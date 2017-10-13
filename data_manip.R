@@ -1,3 +1,6 @@
+## this code does some initial exploration of the sleep, mood, and activity
+## data for 2015. It then compiles the 3 data sets into one data set.
+
 getwd()
 setwd('/Users/tnecamp/Box Sync/Intern-Health-Study-2014-15-cohort/data')
 
