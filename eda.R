@@ -1,3 +1,6 @@
+## this is code to make some initial plots and do some initial eda of
+## the compiled data set
+
 library(ggplot2)
 getwd()
 setwd('/Users/tnecamp/Box Sync/Intern-Health-Study-2014-15-cohort/data')
