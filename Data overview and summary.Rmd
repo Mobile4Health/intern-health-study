@@ -1,0 +1,200 @@
+---
+title: "Data overview and summary"
+output:
+  html_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document highlights the data we will use for the hackathon. It describes the variables contained in the data and gives some preliminary plots
+of the users time series
+
+```{r load_data, echo = FALSE, warning=FALSE, message=FALSE, include=FALSE}
+library(ggplot2)
+library(reshape2)
+getwd()
+setwd('/Users/tnecamp/Box Sync/Intern-Health-Study-2014-15-cohort/Tim/All_2015_daily_data/2015 daily data/')
+load("TN_merged_baseline_activity_sleep_mood_2015_ALL.Rdata")
+full_2015_data$days_intern = full_2015_data$date - full_2015_data$StartDate_BS1
+```
+
+## Summary of data
+
+For the purposes of the hackathon, we will be using the 2015 cohort data (the 2014 data has roughly the same variables but collected for half the year).
+
+The data can be found here:
+
+Intern-Health-Study-2014-15-cohort/Tim/All_2015_daily_data/2015 daily data/TN_merged_baseline_activity_sleep_mood_2015_ALL.Rdata
+
+The data contains measurements on 23 interns in the intern health study. Data was collected on each intern roughly from 4/1/2015 to 7/1/2016. The
+users started their internship July, roughly. The users and their start dates are given by:
+
+```{r, echo=FALSE}
+unique(full_2015_data[,c("userid", "StartDate_BS1")])
+```
+
+
+There are several baseline characterstics. Those are
+```{r, echo=FALSE}
+names(full_2015_data)[24:29]
+```
+
+There is also daily collected data. That data is collected in 3 categories.
+
+Daily Mood- A self-reported score from 1-10
+
+Daily Activity- which has variables
+```{r, echo=FALSE}
+names(full_2015_data)[4:20]
+```
+
+Daily Sleep- which has variables
+```{r, echo=FALSE}
+names(full_2015_data)[21:23]
+```
+
+
+Lastly, we conducted 6 survey on these users throughout the study. In the survey we asked the PHQ9 plus addtional information about 
+sleep and work.
+The question by question responses are given by
+```{r, echo=FALSE}
+names(full_2015_data)[30:135]
+```
+
+day_intern was also created to indicate the number of days they have been in the intership (negative values for before the internship).
+
+From this point forward we will focus on exploring the daily measured data. Specifically we will look at daily mood, daily sleep total (TotalMinutesAsleep), and
+daily activity total (TotalDistance in miles)
+
+## Histograms
+
+Here we give overall histograms across all users.
+
+```{r hist, echo=FALSE}
+hist(full_2015_data$mood, main = "Daily Mood")
+hist(full_2015_data$TotalMinutesAsleep/60, main = "Daily hours of sleep")
+hist(full_2015_data$TotalDistance, main = "Daily distance (miles)")
+```
+
+
+
+```{r correlation, echo=FALSE}
+## get zero time lag correlations between different variables
+all_users = unique(full_2015_data$userid)
+cor_df = matrix(nrow = length(all_users), ncol = 3)
+i=1
+for(users_subset in all_users){
+  data_subset = full_2015_data[(full_2015_data$userid %in% users_subset),]
+  cor_df[i,1] = cor(data_subset$TotalMinutesAsleep, data_subset$mood, use = "complete.obs")
+  cor_df[i,2] = cor(data_subset$TotalMinutesAsleep, data_subset$TotalDistance, use = "complete.obs")
+  cor_df[i,3] = cor(data_subset$TotalDistance, data_subset$mood, use = "complete.obs")
+  i=i+1
+}
+cor_df = data.frame(cor_df, row.names= all_users)
+names(cor_df) = c("cor sleep_mood", "cor sleep_distance", "cor distance_mood")
+cor_df$userid = all_users
+cor_df_melt = melt(cor_df, id.vars = "userid")
+ggplot(data = cor_df_melt, aes(x = userid, y = value)) + geom_point(aes(color = variable))
+```
+
+
+## Time series plots
+
+Here we plot the times series for each user. The blue time series is always mood!
+
+```{r mood_sleep, echo=FALSE, fig.asp = .5}
+colormood <- "blue"
+colorsleep <- "deeppink"
+coloract <- "darkgreen"
+labsize <- 1
+ticksize <- 1
+for(user_i in unique(full_2015_data$userid)){
+  data_subset = full_2015_data[full_2015_data$userid ==user_i,]
+  with(data_subset,plot(days_intern,mood,type="l",pch=16,col=colormood,xlab="Day in Study",
+                        cex.lab=labsize, ylab="Mood self rating", cex.axis=ticksize,
+                        main = paste("mood and sleep for user", user_i)))
+  par(new=T)
+  with(data_subset,plot(days_intern,TotalMinutesAsleep/60,type="l",pch=16,col=colorsleep,axes=F,xlab=NA,ylab=NA))
+  axis(side=4,cex.axis=ticksize)
+  mtext(side=4,line=3,"Hours Asleep",cex=labsize)
+}
+```
+```{r mood_act, echo=FALSE, fig.asp = .5}
+for(user_i in unique(full_2015_data$userid)){
+  data_subset = full_2015_data[full_2015_data$userid ==user_i,]
+  with(data_subset,plot(days_intern,mood,type="l",pch=16,col=colormood,xlab="Day in Study",
+                        cex.lab=labsize, ylab="Mood self rating", cex.axis=ticksize,
+                        main = paste("mood and activity for user", user_i)))
+  par(new=T)
+  with(data_subset,plot(days_intern,TotalDistance,type="l",pch=16,col=coloract,axes=F,xlab=NA,ylab=NA))
+  axis(side=4,cex.axis=ticksize)
+  mtext(side=4,line=3,"Total Distance (miles)",cex=labsize)
+}
+```
+
+## Autocorrelation
+
+Here we look at the autocorrelation of each time series for each user
+
+```{r acf, echo=FALSE}
+## Check that data is sorted
+#for(user_i in unique(full_2015_data$userid)){
+#  data_subset = full_2015_data[full_2015_data$userid ==user_i,]
+#  print(sum(sort(data_subset[,2]) != data_subset[,2]))
+#}
+par(mfrow = c(2,3))
+print("For mood")
+for(user_i in unique(full_2015_data$userid)){
+  data_subset = full_2015_data[full_2015_data$userid ==user_i,]
+  cur_acf = acf(data_subset$mood, na.action = na.pass, plot = FALSE)
+  plot(cur_acf, main = paste("mood autocorr", user_i), ylim = c(-.1, .3))
+}
+par(mfrow = c(2,3))
+print("For Sleep")
+for(user_i in unique(full_2015_data$userid)){
+  data_subset = full_2015_data[full_2015_data$userid ==user_i,]
+  cur_acf = acf(data_subset$TotalMinutesAsleep, na.action = na.pass, plot = FALSE)
+  plot(cur_acf, main = paste("sleep autocorr", user_i), ylim = c(-.1, .3))
+}
+par(mfrow = c(2,3))
+print("For Distance")
+for(user_i in unique(full_2015_data$userid)){
+  data_subset = full_2015_data[full_2015_data$userid ==user_i,]
+  cur_acf = acf(data_subset$TotalDistance, na.action = na.pass, plot = FALSE)
+  plot(cur_acf, main = paste("dist autocorr", user_i), ylim = c(-.1, .3))
+}
+```
+
+## Crosscorrelation
+
+Here we look at the crosscorrelation with mood and (sleep or distance) of each time series for each user. 
+
+For sleep, mood: A lag of u is cor(Sleep[t+u], Mood[t])
+
+For dist, mood: A lag of u is cor(Distance[t+u], Mood[t])
+
+```{r ccf, echo=FALSE}
+par(mfrow = c(2,3))
+print("For Sleep and mood")
+for(user_i in unique(full_2015_data$userid)){
+  data_subset = full_2015_data[full_2015_data$userid ==user_i,]
+  cur_ccf = ccf(data_subset$TotalMinutesAsleep, data_subset$mood, na.action = na.pass, plot = FALSE)
+  plot(cur_ccf, main = paste("sleep, mood ccf", user_i))
+}
+par(mfrow = c(2,3))
+print("For distance and mood")
+for(user_i in unique(full_2015_data$userid)){
+  data_subset = full_2015_data[full_2015_data$userid ==user_i,]
+  cur_ccf = ccf(data_subset$TotalDistance, data_subset$mood, na.action = na.pass, plot = FALSE)
+  plot(cur_ccf, main = paste("distance, mood ccf", user_i))
+}
+```
+
+
+
+
+
+
