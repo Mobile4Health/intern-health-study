@@ -1,0 +1,152 @@
+---
+title: "Vector Autoregression Results"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Model Results from Fitting Vector Autoregressive models to every individual in the 2015 data
+
+What is our model:
+
+$Mood_t = \beta_0 + \beta_1 t + \beta_{2,1} Mood_{t-1} + \beta_{3,1} Sleep_{t} + \beta_{4,1} Activity_{t} +
+... + \beta_{2,L} Mood_{t-L} + \beta_{3,L} Sleep_{t+1-L} + \beta_{4,L} Activity_{t+1-L}$
+
+Here $Mood_t$ is the raw mood scores, $Sleep_t$ is that night's sleep in minutes, $Activity_t$ is logged activity for the day.
+So I'm regressing the mood at 8 pm on the activity for that day, the sleep for the night before, the mood from the previous day
+and I continue for L days into the past. L, the lag is chosen based on model fit.
+
+Missing data- to deal with missing data we just do mean imputation. This is just a first pass, we could 
+do something fancier later. Also, there are some users with lots of missingness, there results
+may not be meaningful
+
+```{r gettable, echo = FALSE, include = FALSE}
+library(vars)
+library(knitr)
+
+setwd('/Users/tnecamp/Box Sync/Intern-Health-Study-2014-15-cohort/Tim/All_2015_daily_data/2015 daily data/')
+load("TN_merged_baseline_activity_sleep_mood_2015_ALL.Rdata")
+
+
+cur_data = full_2015_data[full_2015_data$userid == 110152, ]
+missing_df = data.frame(matrix(nrow= 23, ncol = 4))
+names(missing_df) = c('% mood NA', '% sleep NA', '% dist NA', 'time points')
+
+model_summary_df = data.frame(matrix(nrow= 23, ncol = 3))
+names(model_summary_df) = c('lags', 'R sq', 'adjusted R sq')
+
+coeffs_df = data.frame(matrix(nrow= 23, ncol = 16))
+coeffs_df_condensed =  data.frame(matrix(nrow= 23, ncol = 10))
+names(coeffs_df_condensed) = c('mood1', 'p-val', 'sleep1', 'p-val', 'dist1', 'p-val',
+                               'interc', 'p-val', 'trend', 'p-val')
+
+intern_data = full_2015_data[full_2015_data$days_intern >= 0, ]
+
+intern_data$mood_na = is.na(intern_data$mood)
+mood_na_counts = aggregate(intern_data$mood_na, by = list(intern_data$userid), FUN = sum )
+order_user = mood_na_counts$Group.1[order(mood_na_counts$x)]
+
+for(user_i in 1:23){ #user_i indicates index of user
+cur_user = order_user[user_i]
+row.names(missing_df)[user_i] = cur_user
+row.names(model_summary_df)[user_i] = cur_user
+row.names(coeffs_df)[user_i] = cur_user
+row.names(coeffs_df_condensed)[user_i] = cur_user
+
+cur_data = full_2015_data[full_2015_data$userid == cur_user, ]
+dim(cur_data)
+xx = 0
+for(i in 1:(nrow(cur_data)-1)){
+  xx = xx + (as.numeric(cur_data$date[i] - cur_data$date[i+1]) == -1)
+}
+print(xx == (nrow(cur_data) - 1))
+## so this being true indicates that they are all ordered and I have no date gaps. I think I can turn it into a time series now
+x1 = ts(cur_data[cur_data$days_intern >= 0, 'mood'])
+x2 = ts(cur_data[cur_data$days_intern >= 0, 'TotalMinutesAsleep'], start = 0)
+x_new = ts.intersect(x1,x2)
+cur_data$sqrtDist = sqrt(cur_data$TotalDistance)
+x3 = ts(cur_data[cur_data$days_intern >= 0, 'sqrtDist'], start = 0)
+cur_ts = ts.intersect(x_new, x3)
+colnames(cur_ts) = c('mood', 'TotalMinutesAsleep', 'sqrtDist')
+
+missing_df[user_i, '% mood NA'] = sum(is.na(cur_ts[,'mood']))/(nrow(cur_ts)) 
+missing_df[user_i, '% sleep NA'] = sum(is.na(cur_ts[,'TotalMinutesAsleep']))/(nrow(cur_ts)) 
+missing_df[user_i, '% dist NA'] = sum(is.na(cur_ts[,'sqrtDist']))/(nrow(cur_ts))
+missing_df[user_i, 'time points'] = nrow(cur_ts)
+
+# mean imputation
+cur_ts[is.na(cur_ts[,'mood']), 'mood'] = mean(cur_ts[,'mood'], na.rm = TRUE)
+cur_ts[is.na(cur_ts[,'sqrtDist']), 'sqrtDist'] = mean(cur_ts[,'sqrtDist'], na.rm = TRUE)
+cur_ts[is.na(cur_ts[,'TotalMinutesAsleep']), 'TotalMinutesAsleep'] = mean(cur_ts[,'TotalMinutesAsleep'], na.rm = TRUE)
+
+cur_fit = VAR(cur_ts[,c('mood', 'TotalMinutesAsleep', 'sqrtDist')], type = 'both', lag.max = 5) ## you don't need to have both days intern and trend, one or the other
+
+cur_sum = summary(cur_fit$varresult$mood)
+cur_coeffs = as.vector(t(cur_sum$coefficients)[c(1,4), ]) # #this gives  the coefficients I want. there is a slight problem if my lag is bigger than one, then there is 
+## no alignment when putting it all together in a matrix
+
+cur_lag = cur_fit$p
+temp = 6*cur_lag + 1
+coeffs_df_condensed[user_i, ] = cur_coeffs[c(1:6, temp:(temp+3))]
+
+length(cur_coeffs) = 16
+coeffs_df[user_i, ] = cur_coeffs
+
+model_summary_df[user_i, 'R sq'] = cur_sum$r.squared  # gets r squared value
+model_summary_df[user_i, 'adjusted R sq'] = cur_sum$adj.r.squared # gets adjusted r squared value
+model_summary_df[user_i, 'lags'] = cur_fit$p # this gets the lag
+}
+
+```
+
+## Results of model fits for each user.
+
+Each row represents a new users' fit.
+
+Here we include the missingness in the data for each covariate, the number of data selected lags, the goodness of the fit (Rsq) and the 
+coefficients for each lag and their corresponding p-values. The coefficients are just for the first lag to make the table reasonable sized, but there may have been more based
+on the chosen number of lags.
+The intercept is $\beta_0$ and the trend is $\beta_1$
+
+```{r pressure, echo=FALSE}
+kable(cbind(round(missing_df,2), round(model_summary_df,3), round(coeffs_df_condensed,3)))
+## maybe use kable here
+```
+
+## Plots of time series and residuals
+
+Here we plot the time series for mood, activity and sleep. We also have residual plots for each user. The plots include the fit, residuals over time, the acf and partial acf of the residuals
+
+```{r user plots, echo=FALSE, fig.height = 8, fig.width = 10}
+for(user_i in 1:23){ #user_i indicates index of user
+  cur_user = order_user[user_i]
+  print('user')
+  print(cur_user)
+  row.names(missing_df)[user_i] = cur_user
+  row.names(model_summary_df)[user_i] = cur_user
+  row.names(coeffs_df)[user_i] = cur_user
+  row.names(coeffs_df_condensed)[user_i] = cur_user
+  
+  cur_data = full_2015_data[full_2015_data$userid == cur_user, ]
+  ## so this being true indicates that they are all ordered and I have no date gaps. I think I can turn it into a time series now
+  x1 = ts(cur_data[cur_data$days_intern >= 0, 'mood'])
+  x2 = ts(cur_data[cur_data$days_intern >= 0, 'TotalMinutesAsleep'], start = 0)
+  x_new = ts.intersect(x1,x2)
+  cur_data$sqrtDist = sqrt(cur_data$TotalDistance)
+  x3 = ts(cur_data[cur_data$days_intern >= 0, 'sqrtDist'], start = 0)
+  cur_ts = ts.intersect(x_new, x3)
+  colnames(cur_ts) = c('mood', 'TotalMinutesAsleep', 'sqrtDist')
+  
+  plot(cur_ts)
+  
+  # mean imputation
+  cur_ts[is.na(cur_ts[,'mood']), 'mood'] = mean(cur_ts[,'mood'], na.rm = TRUE)
+  cur_ts[is.na(cur_ts[,'sqrtDist']), 'sqrtDist'] = mean(cur_ts[,'sqrtDist'], na.rm = TRUE)
+  cur_ts[is.na(cur_ts[,'TotalMinutesAsleep']), 'TotalMinutesAsleep'] = mean(cur_ts[,'TotalMinutesAsleep'], na.rm = TRUE)
+  
+  cur_fit = VAR(cur_ts[,c('mood', 'TotalMinutesAsleep', 'sqrtDist')], type = 'both', lag.max = 5) ## you don't need to have both days intern and trend, one or the other
+  plot(cur_fit, names = 'mood', oma = c(0,0,0,0), mar= c(0,0,0,0))
+  }
+```
